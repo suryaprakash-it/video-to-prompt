@@ -21,6 +21,7 @@ User preferences are stored in SQLite as a JSON settings value and survive bot r
 │   └── test_core.py
 ├── Dockerfile
 ├── docker-compose.yml
+├── render.yaml
 ├── requirements.txt
 ├── .env.example
 └── README.md
@@ -66,6 +67,7 @@ Optional values:
 | `MAX_VIDEO_SIZE_MB` | `100` | Maximum accepted Telegram upload size |
 | `MAX_VIDEO_DURATION_SECONDS` | `180` | Maximum accepted video duration |
 | `FRAME_COUNT` | `24` | Number of evenly spaced frames (1–24) |
+| `DOWNLOAD_TIMEOUT_SECONDS` | `300` | Maximum time allowed for the Telegram video download |
 
 The bot's `.env` reader supports simple `KEY=VALUE` lines, comments, and quoted values. Existing process environment variables take precedence.
 
@@ -107,6 +109,8 @@ The Compose configuration keeps SQLite data in a named `bot_data` volume. Stop t
 
 - Supported upload formats depend on FFmpeg; common MP4, MOV, MKV, AVI, WebM, MPEG, and 3GP files are accepted by the input check.
 - Files over the configured size or duration limit are rejected before visual analysis. Up to 24 resized frames are sent to OpenAI.
+- For Render, deploy the container as a **Background Worker**, not a Web Service. The bot makes no inbound HTTP listener; Render web services require a port, while background workers are intended for continuously running processes that make outbound requests. Attach a persistent disk at `/app/data` and set `DATABASE_PATH=/app/data/settings.sqlite3` to preserve settings across restarts.
+- `render.yaml` is an optional Render Blueprint for a Docker Background Worker with a persistent data disk. Add the four secrets in the Render dashboard when prompted. Existing Web Services cannot be converted in place to a different service type; create this worker, then stop the web service so only one bot instance polls Telegram.
 - Telegram and OpenAI credentials are required to run the live bot. Unit tests cover core behavior without contacting those services.
 - The vision model can miss fast motion, small text, or events between sampled frames. The prompt explicitly asks it to label observations separately from qualified inferences and omit unsupported camera or location claims.
 - OpenAI usage may incur API charges. Review your account's current pricing and model availability before choosing a model.

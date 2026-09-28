@@ -1,0 +1,21 @@
+services:
+  - type: worker
+    name: video-prompt-bot-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DATABASE_PATH
+        value: /app/data/settings.sqlite3
+    disk:
+      name: video-prompt-bot-data
+      mountPath: /app/data
+      sizeGB: 1
