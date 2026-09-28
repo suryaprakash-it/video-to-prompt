@@ -1,0 +1,15 @@
+services:
+  video-prompt-bot:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DATABASE_PATH: /app/data/settings.sqlite3
+      FFMPEG_BIN: ffmpeg
+      FFPROBE_BIN: ffprobe
+    volumes:
+      - bot_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  bot_data:
