@@ -13,6 +13,7 @@ from video_prompt_bot.settings import SQLiteSettingsStore, UserPreferences
 from video_prompt_bot.video import (
     VideoProcessingError,
     cleanup_temp_path,
+    download_telegram_video,
     generate_frame_timestamps,
     parse_probe_output,
     validate_video_upload,
@@ -59,11 +60,29 @@ class VideoTests(unittest.TestCase):
             self.assertFalse(directory.exists())
             file_path.write_text("temporary", encoding="utf-8")
             cleanup_temp_path(file_path)
-            cleanup_temp_path(file_path)
             self.assertFalse(file_path.exists())
         finally:
             cleanup_temp_path(directory)
             cleanup_temp_path(file_path)
+
+    def test_telegram_download_helper_and_timeout(self) -> None:
+        class FastClient:
+            async def download_media(self, _message: object, **options: object) -> str:
+                return str(options["file_name"])
+
+        class SlowClient:
+            async def download_media(self, _message: object, **_options: object) -> None:
+                await asyncio.sleep(1)
+
+        async def exercise() -> None:
+            path = await download_telegram_video(FastClient(), object(), Path("video.mp4"), timeout_seconds=1)
+            self.assertEqual(path, Path("video.mp4"))
+            with self.assertRaises(VideoProcessingError):
+                await download_telegram_video(SlowClient(), object(), Path("slow.mp4"), timeout_seconds=0.01)
+            with self.assertRaises(ValueError):
+                await download_telegram_video(FastClient(), object(), Path("video.mp4"), timeout_seconds=0)
+
+        asyncio.run(exercise())
 
 
 class PromptTests(unittest.TestCase):
@@ -110,6 +129,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(config.api_hash, "from-process")
         self.assertEqual(config.frame_count, 12)
         self.assertEqual(config.max_video_size_mb, 100)
+        self.assertEqual(config.download_timeout_seconds, 300)
 
     def test_invalid_configuration_is_rejected(self) -> None:
         with self.assertRaises(ConfigurationError):
