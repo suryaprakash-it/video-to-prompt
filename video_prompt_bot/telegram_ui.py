@@ -11,7 +11,9 @@ from typing import Any
 
 from openai import AsyncOpenAI
 from openai import OpenAIError
+from openai import RateLimitError
 from pyrogram import Client, filters
+from pyrogram.errors import MessageNotModified
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from .config import BotConfig
@@ -88,6 +90,14 @@ def _media_attributes(message: Any) -> tuple[str | None, str | None, int | None]
 async def _send_text(client: Client, chat_id: int, text: str, reply_to_message_id: int | None = None) -> None:
     for part in split_telegram_message(text):
         await client.send_message(chat_id, part, reply_to_message_id=reply_to_message_id)
+
+
+async def _edit_status(status: Any, text: str) -> None:
+    """Edit a progress message, ignoring Telegram's unchanged-message response."""
+    try:
+        await status.edit_text(text)
+    except MessageNotModified:
+        logger.debug("Progress message already contains the requested text")
 
 
 def register_handlers(
@@ -198,7 +208,7 @@ def register_handlers(
                 if current < total and (percent < next_progress_percent or now - last_progress_update < 5):
                     return
                 try:
-                    await status.edit_text(f"Downloading video… {percent}%")
+                    await _edit_status(status, f"Downloading video… {percent}%")
                 except Exception:
                     logger.debug("Could not update download progress message", exc_info=True)
                 last_progress_update = now
@@ -225,7 +235,7 @@ def register_handlers(
                     f"The video is longer than this bot's {config.max_video_duration_seconds} second limit."
                 )
             timestamps = generate_frame_timestamps(metadata.duration_seconds, config.frame_count)
-            await status.edit_text(f"Video received. Extracting {len(timestamps)} frames for analysis…")
+            await _edit_status(status, f"Video received. Extracting {len(timestamps)} frames for analysis…")
             frame_paths = await extract_frames(
                 video_path,
                 temp_dir / "frames",
@@ -247,15 +257,22 @@ def register_handlers(
             except Exception:
                 logger.debug("Could not remove completed status message", exc_info=True)
         except VideoProcessingError as exc:
-            await status.edit_text(str(exc))
+            await _edit_status(status, str(exc))
+        except RateLimitError:
+            logger.exception("OpenAI rejected the analysis because of a rate or quota limit")
+            await _edit_status(
+                status,
+                "OpenAI rejected the analysis because of a rate limit or unavailable API quota. "
+                "Please retry later; the bot owner may need to check API usage and billing.",
+            )
         except OpenAIError:
             logger.exception("OpenAI request failed")
-            await status.edit_text("AI analysis failed. Please try again later.")
+            await _edit_status(status, "AI analysis failed. Please try again later.")
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("Unexpected video processing failure")
-            await status.edit_text("I could not process this video. Please try another valid video file.")
+            await _edit_status(status, "I could not process this video. Please try another valid video file.")
         finally:
             if temp_dir is not None:
                 try:
