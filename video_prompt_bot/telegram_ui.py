@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ from .settings import (
 from .video import (
     VideoProcessingError,
     cleanup_temp_path,
+    download_telegram_video,
     extract_frames,
     generate_frame_timestamps,
     probe_video,
@@ -184,13 +186,37 @@ def register_handlers(
             if suffix not in {".3gp", ".avi", ".m4v", ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".webm"}:
                 suffix = ".video"
             target = temp_dir / f"source{suffix}"
-            downloaded = await client.download_media(message, file_name=str(target))
-            if not downloaded:
-                raise VideoProcessingError("Telegram could not download this video. Please try again.")
+            last_progress_update = 0.0
+            next_progress_percent = 10
+
+            async def update_download_progress(current: int, total: int) -> None:
+                nonlocal last_progress_update, next_progress_percent
+                if total <= 0:
+                    return
+                percent = min(100, current * 100 // total)
+                now = time.monotonic()
+                if current < total and (percent < next_progress_percent or now - last_progress_update < 5):
+                    return
+                try:
+                    await status.edit_text(f"Downloading video… {percent}%")
+                except Exception:
+                    logger.debug("Could not update download progress message", exc_info=True)
+                last_progress_update = now
+                next_progress_percent = min(100, percent + 10)
+
+            video_path = await download_telegram_video(
+                client,
+                message,
+                target,
+                timeout_seconds=config.download_timeout_seconds,
+                progress_callback=update_download_progress,
+            )
             logger.info("Download completed")
-            video_path = Path(downloaded)
             if not video_path.is_file():
                 raise VideoProcessingError("The downloaded video file could not be found.")
+            local_size = video_path.stat().st_size
+            validate_video_upload(filename, mime_type, local_size, max_bytes)
+            logger.info("Downloaded video size: %d bytes", local_size)
 
             metadata = await probe_video(video_path, config.ffprobe_bin)
             logger.info("Video duration: %.1f seconds", metadata.duration_seconds)

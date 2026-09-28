@@ -10,7 +10,7 @@ import shutil
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 logger = logging.getLogger(__name__)
 VIDEO_SUFFIXES = {".3gp", ".avi", ".m4v", ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".webm"}
@@ -142,6 +142,34 @@ async def probe_video(path: Path, ffprobe_bin: str = "ffprobe") -> VideoMetadata
         logger.warning("ffprobe failed (%s): %s", code, details[:500])
         raise VideoProcessingError("FFprobe could not read this video. Please send a valid video file.")
     return parse_probe_output(stdout.decode("utf-8", errors="replace"))
+
+
+async def download_telegram_video(
+    client: Any,
+    message: Any,
+    target_path: Path,
+    timeout_seconds: int = 300,
+    progress_callback: Callable[[int, int], Any] | None = None,
+) -> Path:
+    """Download a Telegram video with progress reporting and a bounded wait."""
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be greater than zero")
+    options: dict[str, Any] = {"file_name": str(target_path)}
+    if progress_callback is not None:
+        options["progress"] = progress_callback
+    try:
+        result = await asyncio.wait_for(
+            client.download_media(message, **options),
+            timeout=timeout_seconds,
+        )
+    except asyncio.TimeoutError as exc:
+        raise VideoProcessingError(
+            f"Telegram did not finish downloading the video within {timeout_seconds} seconds. "
+            "Please retry or send a smaller video."
+        ) from exc
+    if not result:
+        raise VideoProcessingError("Telegram could not download this video. Please try again.")
+    return Path(result)
 
 
 async def extract_frames(

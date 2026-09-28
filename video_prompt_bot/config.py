@@ -27,6 +27,7 @@ class BotConfig:
     max_video_size_mb: int = 100
     max_video_duration_seconds: int = 180
     frame_count: int = 24
+    download_timeout_seconds: int = 300
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -106,4 +107,5 @@ def load_config(
         max_video_size_mb=_positive_int(values, "MAX_VIDEO_SIZE_MB", 100),
         max_video_duration_seconds=_positive_int(values, "MAX_VIDEO_DURATION_SECONDS", 180),
         frame_count=frame_count,
+        download_timeout_seconds=_positive_int(values, "DOWNLOAD_TIMEOUT_SECONDS", 300),
     )
